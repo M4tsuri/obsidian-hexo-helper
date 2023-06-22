@@ -244,8 +244,6 @@ export default class HexoHelper extends Plugin {
 				new Notice("[Hexo Helper] Failed to kill publish process.")
 			}
 		}
-		
-		this.app.workspace.detachLeavesOfType(HEXO_VIEW_TYPE);
 	}
 
 	async loadSettings() {
