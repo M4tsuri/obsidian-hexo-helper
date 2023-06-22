@@ -20,5 +20,10 @@
 		"obsidian": "latest",
 		"tslib": "2.4.0",
 		"typescript": "4.7.4"
+	},
+	"dependencies": {
+		"@types/which": "^3.0.0",
+		"path": "^0.12.7",
+		"which": "^3.0.1"
 	}
 }

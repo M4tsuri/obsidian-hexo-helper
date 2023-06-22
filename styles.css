@@ -6,3 +6,18 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+
+.hexo-view-content {
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+.hexo-view-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background-color: white;
+    background-clip: content-box;
+}
+
+
