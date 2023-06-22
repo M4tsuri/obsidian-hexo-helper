@@ -185,7 +185,6 @@ export default class HexoHelper extends Plugin {
 		const vaultPath = this.app.vault.adapter.basePath;
 		const filePath = path.join(vaultPath, file.path);
 		const assetsPath = path.join(vaultPath, "assets", file.basename);
-		new Notice("asset at " + assetsPath)
 		
 		await cp(assetsPath, path.join(this.settings.hexoPath, "source", ty, file.basename), {
 			recursive: true
@@ -229,6 +228,8 @@ export default class HexoHelper extends Plugin {
 	}
 
 	stopPreview() {
+		this.app.workspace.detachLeavesOfType(HEXO_VIEW_TYPE);
+
 		if (this.previewProcess != undefined && this.previewProcess.exitCode == null) {
 			if (!this.previewProcess.kill(2)) {
 				new Notice("[Hexo Helper] Failed to kill preview process.")
