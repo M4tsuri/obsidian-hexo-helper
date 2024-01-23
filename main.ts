@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from 'child_process';
-import { existsSync } from 'fs';
 import { copyFile, cp, rm } from 'fs/promises';
+import { existsSync } from 'fs';
 import { App, ItemView, Notice, Plugin, PluginSettingTab, Setting, TFile, WorkspaceLeaf } from 'obsidian';
 import * as path from 'path';
 import * as which from 'which';
@@ -13,13 +13,13 @@ enum HexoPostType {
 
 interface HexoHelperSettings {
 	hexoPath: string;
-	npxPath: string;
-	hexoPort: number
+	hexoPort: number,
+	isFlatpak: boolean
 }
 const DEFAULT_SETTINGS: HexoHelperSettings = {
 	hexoPath: "",
 	hexoPort: 4000,
-	npxPath: ""
+	isFlatpak: false
 }
 
 const HEXO_VIEW_TYPE = "hexo-view"
@@ -90,18 +90,38 @@ export default class HexoHelper extends Plugin {
 		}
 		this.stopPreview()
 		const [_file, status] = await this.copyFiles(HexoPostType.HEXO_DRAFT);
-		if (!status) { return }
+		if (!status) { 
+			new Notice("copy file failed.")
+			return 
+		}
 		
-		const previewProcess = spawn(this.settings.npxPath!, [
-			"hexo", "serve", 
-			"--draft",
-			"-g", 
-			"-i", "127.0.0.1", 
-			"-p", this.settings.hexoPort.toString()
-		], 
-		{
-			cwd: this.settings.hexoPath.toString()
-		});
+		let previewProcess;
+		if (this.settings.isFlatpak) {
+			previewProcess = spawn("flatpak-spawn", [
+				"--host",
+				"node_modules/hexo/bin/hexo",
+				"serve", 
+				"--draft",
+				"-g", 
+				"-i", "127.0.0.1", 
+				"-p", this.settings.hexoPort.toString()
+			], 
+			{
+				cwd: this.settings.hexoPath.toString()
+			});
+		} else {
+			previewProcess = spawn("node_modules/hexo/bin/hexo", [
+				"serve", 
+				"--draft",
+				"-g", 
+				"-i", "127.0.0.1", 
+				"-p", this.settings.hexoPort.toString()
+			], 
+			{
+				cwd: this.settings.hexoPath.toString()
+			});
+		}
+		
 		
 		this.previewProcess = previewProcess;
 		previewProcess.on("error", err => {
@@ -135,13 +155,26 @@ export default class HexoHelper extends Plugin {
 		const [file, status] = await this.copyFiles(HexoPostType.HEXO_POST);
 		if (!status) { return }
 		
-		const publishProcess = spawn(this.settings.npxPath!, [
-			"hexo", "deploy", 
-			"-g"
-		], 
-		{
-			cwd: this.settings.hexoPath.toString()
-		});
+		let publishProcess;
+		if (this.settings.isFlatpak) {
+			publishProcess = spawn("flatpak-spawn", [
+				"--host",
+				"node_modules/hexo/bin/hexo",
+				"deploy", 
+				"-g"
+			], 
+			{
+				cwd: this.settings.hexoPath.toString()
+			});
+		} else {
+			publishProcess = spawn("node_modules/hexo/bin/hexo", [
+				"deploy", 
+				"-g"
+			], 
+			{
+				cwd: this.settings.hexoPath.toString()
+			});
+		}
 		
 		this.publishProcess = publishProcess;
 		publishProcess.on("error", err => {
@@ -184,11 +217,14 @@ export default class HexoHelper extends Plugin {
 		//@ts-ignore
 		const vaultPath = this.app.vault.adapter.basePath;
 		const filePath = path.join(vaultPath, file.path);
-		const assetsPath = path.join(vaultPath, "assets", file.basename);
+		const assetsPath = path.join(path.parse(filePath).dir, "assets", file.basename);
+
+		if (existsSync(assetsPath)) {
+			await cp(assetsPath, path.join(this.settings.hexoPath, "source", ty, file.basename), {
+				recursive: true
+			})
+		}
 		
-		await cp(assetsPath, path.join(this.settings.hexoPath, "source", ty, file.basename), {
-			recursive: true
-		})
 		await copyFile(filePath, path.join(this.settings.hexoPath, "source", ty, file.name))
 		return [file, true]
 	}
@@ -204,18 +240,6 @@ export default class HexoHelper extends Plugin {
 		
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-		
-		// set npx path
-		if (this.settings.npxPath.trim() == '') {
-			const npxPath = which.sync("npx", { nothrow: true });
-			if (npxPath != null) {
-				this.settings.npxPath = npxPath
-				await this.saveSettings()
-			} else {
-				new Notice("[Hexo Helper] You need to set npx path in settings first.")
-				return
-			}
-		}
 
 		this.addRibbonIcon('pencil', 'Hexo Preview', async (evt: MouseEvent) => {
 			new Notice("[Hexo Helper] Preview Current Note")
@@ -239,11 +263,6 @@ export default class HexoHelper extends Plugin {
 
 	onunload() {
 		this.stopPreview()
-		if (this.publishProcess != undefined && this.publishProcess.exitCode == null) {
-			if (!this.publishProcess.kill(2)) {
-				new Notice("[Hexo Helper] Failed to kill publish process.")
-			}
-		}
 	}
 
 	async loadSettings() {
@@ -269,17 +288,6 @@ class HexoHelperSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl('h2', {text: 'Hexo Helper Settings'});
-		
-		new Setting(containerEl)
-			.setName('NPX Path')
-			.setDesc('The path to npx executable')
-			.addText(text => text
-				.setPlaceholder('Enter the path')
-				.setValue(this.plugin.settings.npxPath)
-				.onChange(async (value) => {
-					this.plugin.settings.npxPath = value;
-					await this.plugin.saveSettings();
-				}));
 
 		new Setting(containerEl)
 			.setName('Hexo Project Folder')
@@ -300,6 +308,16 @@ class HexoHelperSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.hexoPort.toString())
 				.onChange(async (value) => {
 					this.plugin.settings.hexoPort = Number(value);
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('Running Under Flatpak')
+			.setDesc('Is Obsidian running under flatpak')
+			.addToggle(com => com
+				.setValue(this.plugin.settings.isFlatpak)
+				.onChange(async value => {
+					this.plugin.settings.isFlatpak = value;
 					await this.plugin.saveSettings();
 				}));
 	}
